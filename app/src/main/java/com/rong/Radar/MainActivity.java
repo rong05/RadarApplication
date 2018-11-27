@@ -448,12 +448,25 @@ public class MainActivity extends AppCompatActivity {
                 }
                 final String[] strings = msg.split(BREAKPOINT);
                 final int length = strings.length;
+                for(int i = 0 ; i < length ; i++){
+                    final String str = strings[i];
+                    if(str.contains(startStr)){
+                        final String size = str.replace(startStr,"");
+                        if(isInteger(size)){
+                            clear();
+                            allSize = Integer.parseInt(size);
+                        }else {
+                            Log.e("SSS","数据有误！");
+                            isFinish = true;
+                            return;
+                        }
+                    }
+                }
             }
             isFinish = true;
         }
 
-        private void error(){
-            Log.e("SSS","数据有误！");
+        private void clear(){
             if(builder != null) {
                 builder.reverse();
                 builder = null;

@@ -60,6 +60,7 @@ public class MainActivity extends AppCompatActivity {
     private Queue<String> messageQueue;
     private Object lock;
     private List<PointBuffer> pointBufferList;
+    private List<PointBuffer> radarPointList;
 
     String[] allPermissions=new String[]{
             Manifest.permission.BLUETOOTH,
@@ -100,6 +101,9 @@ public class MainActivity extends AppCompatActivity {
         messageQueue = new LinkedList<>();
         lock = new Object();
         pointBufferList = new ArrayList<>();
+        radarPointList = new ArrayList<>();
+        pointReadThread = new PointReadThread();
+        pointReadThread.start();
     }
 
     /**
@@ -330,6 +334,10 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void onReceiveMessage(String finalContent) {
             Log.d("MainActivity",finalContent);
+            synchronized (lock){
+                messageQueue.add(finalContent);
+                pointReadThread.readNotify();
+            }
         }
 
         @Override
@@ -400,6 +408,8 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    private PointReadThread pointReadThread;
+
     private class PointReadThread extends Thread{
         private boolean isRunning = true;
         private boolean isFinish = true;
@@ -450,13 +460,75 @@ public class MainActivity extends AppCompatActivity {
                 final int length = strings.length;
                 for(int i = 0 ; i < length ; i++){
                     final String str = strings[i];
-                    if(str.contains(startStr)){
+                    if(i == 0 && str.contains(startStr)){
                         final String size = str.replace(startStr,"");
                         if(isInteger(size)){
                             clear();
                             allSize = Integer.parseInt(size);
                         }else {
                             Log.e("SSS","数据有误！");
+                            clear();
+                            isFinish = true;
+                            return;
+                        }
+                    }
+                    if(i != 0 && i != (length-1) && (i % 3) == 1){
+                        if(isInteger(str)){
+                           final int num =  Integer.parseInt(str);
+                           pointBuffer = new PointBuffer();
+                           pointBuffer.setNumber(num);
+                        }else {
+                            clear();
+                            Log.e("SSS","数据有误！");
+                            isFinish = true;
+                            return;
+                        }
+                    }
+                    if(i != 0 && i != (length-1) && (i % 3) == 2){
+                        if(isInteger(str)){
+                            final int angle =  Integer.parseInt(str);
+                            pointBuffer.setAngle(angle);
+                        }else {
+                            clear();
+                            Log.e("SSS","数据有误！");
+                            isFinish = true;
+                            return;
+                        }
+                    }
+                    if(i != 0 && i != (length-1) && (i % 3) == 0){
+                        if(isInteger(str)){
+                            final int radius =  Integer.parseInt(str);
+                            pointBuffer.setRadius(radius);
+                            isPointBuffer = true;
+                        }else {
+                            clear();
+                            Log.e("SSS","数据有误！");
+                            isFinish = true;
+                            return;
+                        }
+                    }
+                    if(isPointBuffer){
+                        if(pointBuffer.getAngle() == 0){
+                            radarPointList.clear();
+                            for(PointBuffer pointBuffer : pointBufferList){
+                                radarPointList.add(pointBuffer);
+                            }
+                            rv_radar.setPointBufferList(radarPointList);
+                            pointBufferList.clear();
+                            pointBufferList.add(pointBuffer);
+                        }else {
+                            pointBufferList.add(pointBuffer);
+                        }
+                        isPointBuffer = false;
+                    }
+                    if(i == (length-1) && str.contains(endStr)){
+                        final String size = str.replace(endStr,"");
+                        if(isInteger(size)){
+
+                            allSize = Integer.parseInt(size);
+                        }else {
+                            Log.e("SSS","数据有误！");
+                            clear();
                             isFinish = true;
                             return;
                         }

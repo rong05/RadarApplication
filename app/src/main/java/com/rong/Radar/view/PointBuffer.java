@@ -3,6 +3,7 @@ package com.rong.Radar.view;
 public class PointBuffer {
      int radius =0;
      int angle = 0;
+     int number = -1;
 
      public PointBuffer() {
      }
@@ -26,5 +27,13 @@ public class PointBuffer {
 
      public void setAngle(int angle) {
           this.angle = angle;
+     }
+
+     public int getNumber() {
+          return number;
+     }
+
+     public void setNumber(int number) {
+          this.number = number;
      }
 }

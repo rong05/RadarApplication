@@ -1,0 +1,18 @@
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    tools:context=".MainActivity" >
+
+    <item
+        android:id="@+id/start"
+        android:orderInCategory="100"
+        android:title="搜索蓝牙"
+        app:showAsAction="never" />
+<!--    <item
+        android:id="@+id/over"
+        android:orderInCategory="200"
+        android:title="@string/over"
+        app:showAsAction="never" />-->
+
+
+</menu>

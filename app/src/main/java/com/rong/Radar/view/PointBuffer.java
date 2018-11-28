@@ -1,8 +1,8 @@
 package com.rong.Radar.view;
 
 public class PointBuffer {
-     int radius =0;
-     int angle = 0;
+     float radius =0;
+     float angle = 0;
      int number = -1;
 
      public PointBuffer() {
@@ -13,19 +13,19 @@ public class PointBuffer {
           this.angle = angle;
      }
 
-     public int getRadius() {
+     public float getRadius() {
           return radius;
      }
 
-     public int getAngle() {
+     public float getAngle() {
           return angle;
      }
 
-     public void setRadius(int radius) {
+     public void setRadius(float radius) {
           this.radius = radius;
      }
 
-     public void setAngle(int angle) {
+     public void setAngle(float angle) {
           this.angle = angle;
      }
 

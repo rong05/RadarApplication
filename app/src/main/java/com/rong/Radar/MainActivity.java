@@ -29,6 +29,7 @@ import android.view.MenuItem;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ListView;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import com.rong.Radar.adapter.DialogItemAdapter;
@@ -51,6 +52,7 @@ import java.util.regex.Pattern;
 public class MainActivity extends AppCompatActivity {
 
     private RadarView rv_radar;
+    private TextView tv_erea;
 
     private BluetoothManager bluetoothManager;
     private BluetoothAdapter mBluetoothAdapter;
@@ -241,6 +243,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void initView() {
         rv_radar = findViewById(R.id.rv_radar);
+        tv_erea = findViewById(R.id.tv_area);
     }
 
     //蓝牙设备
@@ -303,7 +306,8 @@ public class MainActivity extends AppCompatActivity {
                     break;
 
                 case 0:
-
+                    final float area = (float) msg.obj;
+                    tv_erea.setText(area+"");
                     break;
             }
         }
@@ -443,6 +447,11 @@ public class MainActivity extends AppCompatActivity {
             while (isRunning){
                 if(messageQueue!= null && !messageQueue.isEmpty() && isFinish){
                     scanMessage();
+                    try {
+                        Thread.sleep(500);
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
                 }else {
                     readWait();
                 }
@@ -487,7 +496,7 @@ public class MainActivity extends AppCompatActivity {
                     if(i != 0 && i != (length-1) && (i % 3) == 2){
                         if(isInteger(str)){
                             final int angle =  Integer.parseInt(str);
-                            pointBuffer.setAngle(angle);
+                            pointBuffer.setAngle((float) (angle/100));
                         }else {
                             clear();
                             Log.e("SSS","数据有误！");
@@ -498,7 +507,7 @@ public class MainActivity extends AppCompatActivity {
                     if(i != 0 && i != (length-1) && (i % 3) == 0){
                         if(isInteger(str)){
                             final int radius =  Integer.parseInt(str);
-                            pointBuffer.setRadius(radius);
+                            pointBuffer.setRadius((float)(radius/100));
                             isPointBuffer = true;
                         }else {
                             clear();
@@ -509,6 +518,10 @@ public class MainActivity extends AppCompatActivity {
                     }
                     if(isPointBuffer){
                         if(pointBuffer.getAngle() == 0){
+                            Message msg1 =Message.obtain();
+                            msg1.what = 0;
+                            msg1.obj = rv_radar.getAllArea();
+                            mHandler.sendMessage(msg1);
                             radarPointList.clear();
                             for(PointBuffer pointBuffer : pointBufferList){
                                 radarPointList.add(pointBuffer);
@@ -520,12 +533,16 @@ public class MainActivity extends AppCompatActivity {
                             pointBufferList.add(pointBuffer);
                         }
                         isPointBuffer = false;
+                        clear();
                     }
                     if(i == (length-1) && str.contains(endStr)){
                         final String size = str.replace(endStr,"");
                         if(isInteger(size)){
-
-                            allSize = Integer.parseInt(size);
+                            final int radius  = Integer.parseInt(size);
+                            pointBuffer.setRadius((float)(radius/100));
+                            pointBufferList.add(pointBuffer);
+                            rv_radar.setPointBufferList(pointBufferList);
+                            clear();
                         }else {
                             Log.e("SSS","数据有误！");
                             clear();
@@ -543,7 +560,6 @@ public class MainActivity extends AppCompatActivity {
                 builder.reverse();
                 builder = null;
             }
-            allSize = 0;
             pointBuffer = null;
             isPointBuffer = false;
             if(!msgPoints.isEmpty()) {

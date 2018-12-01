@@ -28,6 +28,7 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.widget.AdapterView;
+import android.widget.Button;
 import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -41,6 +42,7 @@ import com.rong.Radar.view.PointBuffer;
 import com.rong.Radar.view.RadarView;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
@@ -53,6 +55,7 @@ public class MainActivity extends AppCompatActivity {
 
     private RadarView rv_radar;
     private TextView tv_erea;
+    private Button bn_start_stop;
 
     private BluetoothManager bluetoothManager;
     private BluetoothAdapter mBluetoothAdapter;
@@ -102,8 +105,12 @@ public class MainActivity extends AppCompatActivity {
         clientUtil.init(mHandler,mBluetoothAdapter);
         messageQueue = new LinkedList<>();
         lock = new Object();
+        String s = "[20,01,00000,000,02,00042,000,03,00084,000,04,00127,000,05,00169,000,06,00212,269,07,00254,271,08,00297,274,09,00339,274,10,00382,275,11,00424,277,12,00466,277,13,00509,278,14,00551,278,15,00594,281,16,00636,281,17,00679,282,18,00721,283,19,00764,285,20,00806,285]";
+        String s1 = "[53,01,13500,034,02,13559,033,03,13618,033,04,13677,032,05,13736,032,06,13795,032,07,13854,032,08,13913,032,09,13972,033,10,14031,034,11,14090,034,12,14149,034,13,14208,033,14,14267,032,15,14326,032,16,14385,032,17,14444,032,18,14503,032,19,14562,032,20,14621,032,21,14680,033,22,14739,033,23,14798,033,24,14857,033,25,14916,033,26,14975,033,27,15034,033,28,15093,033,29,15152,033,30,15211,033,31,15270,033,32,15329,032,33,15388,033,34,15447,033,35,15506,033,36,15565,033,37,15624,034,38,15683,033,39,15742,033,40,15801,034,41,15860,034,42,15919,034,43,15978,034,44,16037,034,45,16096,034,46,16155,034,47,16214,327,48,16273,314,49,16332,327,50,16391,308,51,16450,327,52,16509,308,53,16568,314]";
         pointBufferList = new ArrayList<>();
         radarPointList = new ArrayList<>();
+        messageQueue.add(s);
+        messageQueue.add(s1);
         pointReadThread = new PointReadThread();
         pointReadThread.start();
     }
@@ -244,7 +251,26 @@ public class MainActivity extends AppCompatActivity {
     private void initView() {
         rv_radar = findViewById(R.id.rv_radar);
         tv_erea = findViewById(R.id.tv_area);
+        bn_start_stop = findViewById(R.id.bn_stop_start);
+        rv_radar.setHandler(mHandler);
+        bn_start_stop.setEnabled(false);
+        bn_start_stop.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if(isStop){
+                    isStop = false;
+                    bn_start_stop.setText("停止");
+                    if(radarPointList != null && !radarPointList.isEmpty()) {
+                        rv_radar.setPointBufferList(radarPointList);
+                    }
+                }else {
+                    isStop = true;
+                    bn_start_stop.setText("开始");
+                }
+            }
+        });
     }
+
 
     //蓝牙设备
     private Map<String,BluetoothDevice> liDevices = new HashMap<>();
@@ -323,6 +349,10 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void connectSuccess(String serverBlueToothAddress) {
             clientUtil.setOnReceivedMessageListener(receivedMessageListener);
+            Toast.makeText(MainActivity.this,"蓝牙连接成功！",Toast.LENGTH_LONG).show();
+            bn_start_stop.setText("停止");
+            bn_start_stop.setEnabled(true);
+            isStop = false;
         }
 
         @Override
@@ -413,6 +443,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private PointReadThread pointReadThread;
+    private boolean isStop = false;
 
     private class PointReadThread extends Thread{
         private boolean isRunning = true;
@@ -481,6 +512,22 @@ public class MainActivity extends AppCompatActivity {
                             return;
                         }
                     }
+                    if(i == (length - 1) && str.contains(endStr)){
+                        final String size = str.replace(endStr,"");
+                        if(isInteger(size)){
+                            final int radius  = Integer.parseInt(size);
+                            pointBuffer.setRadius(((float)radius/100f));
+                            Log.d("MainActivity",pointBuffer.toString());
+                            pointBufferList.add(pointBuffer);
+                            ///rv_radar.setPointBufferList(pointBufferList);
+                            clear();
+                        }else {
+                            Log.e("SSS","数据有误！");
+                            clear();
+                            isFinish = true;
+                            return;
+                        }
+                    }
                     if(i != 0 && i != (length-1) && (i % 3) == 1){
                         if(isInteger(str)){
                            final int num =  Integer.parseInt(str);
@@ -496,7 +543,7 @@ public class MainActivity extends AppCompatActivity {
                     if(i != 0 && i != (length-1) && (i % 3) == 2){
                         if(isInteger(str)){
                             final int angle =  Integer.parseInt(str);
-                            pointBuffer.setAngle((float) (angle/100));
+                            pointBuffer.setAngle((float) ((float)angle/100f));
                         }else {
                             clear();
                             Log.e("SSS","数据有误！");
@@ -507,7 +554,7 @@ public class MainActivity extends AppCompatActivity {
                     if(i != 0 && i != (length-1) && (i % 3) == 0){
                         if(isInteger(str)){
                             final int radius =  Integer.parseInt(str);
-                            pointBuffer.setRadius((float)(radius/100));
+                            pointBuffer.setRadius((float)((float)radius/100f));
                             isPointBuffer = true;
                         }else {
                             clear();
@@ -517,39 +564,23 @@ public class MainActivity extends AppCompatActivity {
                         }
                     }
                     if(isPointBuffer){
-                        if(pointBuffer.getAngle() == 0){
-                            Message msg1 =Message.obtain();
-                            msg1.what = 0;
-                            msg1.obj = rv_radar.getAllArea();
-                            mHandler.sendMessage(msg1);
-                            radarPointList.clear();
-                            for(PointBuffer pointBuffer : pointBufferList){
-                                radarPointList.add(pointBuffer);
+                        if(pointBuffer.getAngle() == 0) {
+                            if(!isStop) {
+                                radarPointList.clear();
+                                Collections.sort(pointBufferList);
+                                radarPointList.addAll(pointBufferList);
+                                rv_radar.setPointBufferList(radarPointList);
                             }
-                            rv_radar.setPointBufferList(radarPointList);
                             pointBufferList.clear();
                             pointBufferList.add(pointBuffer);
-                        }else {
-                            pointBufferList.add(pointBuffer);
                         }
+                        //addPointBuffer(pointBuffer);
+                        Log.d("MainActivity",pointBuffer.toString());
+                        pointBufferList.add(pointBuffer);
                         isPointBuffer = false;
                         clear();
                     }
-                    if(i == (length-1) && str.contains(endStr)){
-                        final String size = str.replace(endStr,"");
-                        if(isInteger(size)){
-                            final int radius  = Integer.parseInt(size);
-                            pointBuffer.setRadius((float)(radius/100));
-                            pointBufferList.add(pointBuffer);
-                            rv_radar.setPointBufferList(pointBufferList);
-                            clear();
-                        }else {
-                            Log.e("SSS","数据有误！");
-                            clear();
-                            isFinish = true;
-                            return;
-                        }
-                    }
+
                 }
             }
             isFinish = true;
@@ -575,8 +606,24 @@ public class MainActivity extends AppCompatActivity {
      * @return 是整数返回true,否则返回false
      */
     public static boolean isInteger(String str) {
-        Pattern pattern = Pattern.compile("^[-\\+]?[\\d]*$");
-        return pattern.matcher(str).matches();
+        try {
+            Integer.parseInt(str);
+        }catch (Exception e){
+            return false;
+        }
+        return true;
+    }
+
+    private void addPointBuffer(PointBuffer pointBuffer){
+        final int size = pointBufferList.size();
+        for(int i = (size - 1); i >= 0 ; i -- ){
+            PointBuffer lPointBuffer = pointBufferList.get(i);
+            if(lPointBuffer.getAngle() == pointBuffer.getAngle() && pointBuffer.getRadius() != 0){
+                pointBufferList.set(i,pointBuffer);
+                return;
+            }
+        }
+        pointBufferList.add(pointBuffer);
     }
 
 }

@@ -5,8 +5,12 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Path;
+import android.os.Handler;
+import android.os.Message;
 import android.util.AttributeSet;
 import android.util.DisplayMetrics;
+import android.util.Log;
+import android.view.MotionEvent;
 import android.view.View;
 
 import java.util.ArrayList;
@@ -28,9 +32,29 @@ public class RadarView extends View {
     private int screenWidth;
     private int ten;
     private int forty;
+    private List<Point> pointList;
+
+    private class Point{
+        float x;
+        float y;
+        float radius =0;
+        float angle = 0;
+
+        public Point(float x, float y, float radius, float angle) {
+            this.x = x;
+            this.y = y;
+            this.radius = radius;
+            this.angle = angle;
+        }
+    }
     public RadarView(Context context, AttributeSet attrs, int defStyleAttr) {
         super(context, attrs, defStyleAttr);
         init();
+    }
+
+    private Handler mainHandler;
+    public void setHandler(Handler handler){
+      mainHandler = handler;
     }
 
     public RadarView(Context context, AttributeSet attrs) {
@@ -48,9 +72,10 @@ public class RadarView extends View {
         DisplayMetrics dm = getResources().getDisplayMetrics();
         screenWidth = dm.widthPixels;
         pointBufferList = new ArrayList<>();
+        pointList = new ArrayList<>();
 
 
-        ten = (int) (0.0094*screenWidth);
+        ten = (int) (0.0054*screenWidth);
         forty = (int) (0.036*screenWidth);
 //        count = Math.min(data.length, titles.length);
 
@@ -84,8 +109,14 @@ public class RadarView extends View {
         setBackgroundColor(Color.GRAY);
         drawCircle(canvas);
         drawLines(canvas);
-//        drawText(canvas);
         drawRegion(canvas);
+        drawText(canvas);
+        if(mainHandler != null) {
+            Message msg1 = Message.obtain();
+            msg1.what = 0;
+            msg1.obj = getAllArea();
+            mainHandler.sendMessageDelayed(msg1, 500);
+        }
     }
 
     /**
@@ -144,40 +175,28 @@ public class RadarView extends View {
             final float radius  =  pointBuffer.radius;
             final float angle =  pointBuffer.angle;
             if(radius > 0) {
-                double percent = (radius*10) / maxValue;
-                float x = (float) (centerX + this.radius * Math.cos(angle) * percent);
-                float y = (float) (centerY + this.radius * Math.sin(angle) * percent);
+                double percent = (radius)* (this.radius /count);
+                float x = (float) (centerX + Math.cos(angle * Math.PI / 180) * percent);
+                float y = (float) (centerY + Math.sin(angle * Math.PI / 180) * percent);
                 path.moveTo(x, y);
                 valuePaint.setColor(Color.RED);
                 canvas.drawCircle(x, y, ten, valuePaint);
+                Point point = new Point(x,y,radius,angle);
+                pointList.add(point);
+                if(i > 0){
+                    final PointBuffer lPointBuffer = pointBufferList.get(i - 1);
+                    final float lRadius = lPointBuffer.radius;
+                    final float lAngle =  lPointBuffer.angle;
+                    if(lRadius != 0) {
+                        Log.e("MMM","radius =" +radius + ",lAngle = " + lAngle);
+                        allArea += getArea(radius, lRadius,Math.abs(angle - lAngle));
+                    }
+                }
             }
             if(radius == 0 && lastPoint == null && i != 0){
                 lastPoint = pointBufferList.get(i - 1);
             }
-            if(i > 0 && radius != 0){
-                final PointBuffer lPointBuffer = pointBufferList.get(i - 1);
-                final float lRadius = lPointBuffer.radius;
-                final float lAngle =  lPointBuffer.angle;
-                if(lRadius != 0) {
-                    allArea += getArea(radius, lRadius, (radius - lAngle));
-                }
-                if(lRadius == 0){
-                    final PointBuffer llPointBuffer = lastPoint;
-                    final float llRadius = llPointBuffer.radius;
-                    final float llAngle =  llPointBuffer.angle;
-                    double percent = (llRadius*10) / maxValue;
-                    float x = (float) (centerX + this.radius * Math.cos(llAngle) * percent);
-                    float y = (float) (centerY + this.radius * Math.sin(llAngle) * percent);
-                    final float notch = getNotch(radius, llRadius, (radius - llAngle));
-                    final String notchS = notch+"";
-                    float measureText = textPaint.measureText(notchS);
-                    Paint.FontMetrics fontMetrics = textPaint.getFontMetrics();
-                    float baselineY = y - fontMetrics.top;
-                    canvas.drawText(notchS,x-measureText,baselineY,textPaint);
-                    notchList.add(notch);
-                    lastPoint = null;
-                }
-            }
+
         }
         lastPoint = null;
         valuePaint.setColor(Color.RED);
@@ -189,6 +208,74 @@ public class RadarView extends View {
     public void setPointBufferList(List<PointBuffer> pointBufferList){
         this.pointBufferList = pointBufferList;
         postInvalidate();
+        if(!pointList.isEmpty()){
+            pointList.clear();
+            lastPointView = null;
+            nextPointView = null;
+        }
+    }
+
+    private Point lastPointView = null;
+    private Point nextPointView = null;
+
+    /**
+     * 绘制区域
+     *
+     * @param canvas
+     */
+    private void drawText(Canvas canvas) {
+
+        if(lastPointView != null) {
+            final String notchS = "当前1点，半径 ="+ lastPointView.radius
+                    + " ,角度 =" + lastPointView.angle ;
+            float measureText = textPaint.measureText(notchS);
+            Paint.FontMetrics fontMetrics = textPaint.getFontMetrics();
+            float baselineY = lastPointView.y - fontMetrics.top;
+            textPaint.setAlpha(127);
+            canvas.drawText(notchS, 35, 135, textPaint);
+        }
+        if(nextPointView != null ){
+            final float n = getNotch(nextPointView.radius,lastPointView.radius ,Math.abs(nextPointView.angle - lastPointView.angle));
+            final String notchS = "当前2点，半径 ="+ nextPointView.radius
+                    + " ,角度 =" + nextPointView.angle
+                    + ",与前一个点的距离是 =" + n;
+            float measureText = textPaint.measureText(notchS);
+            Paint.FontMetrics fontMetrics = textPaint.getFontMetrics();
+            float baselineY = nextPointView.y + fontMetrics.top;
+            textPaint.setAlpha(127);
+            canvas.drawText(notchS,35,180,textPaint);
+            //canvas.drawText(notchS, nextPointView.x - measureText, baselineY, textPaint);
+            lastPointView = nextPointView;
+            nextPointView = null;
+        }
+    }
+
+    @Override
+    public boolean onTouchEvent(MotionEvent event) {
+        if(event.getAction() == MotionEvent.ACTION_DOWN) {
+            final float x = event.getX();
+            final float y = event.getY();
+            Log.d("SSS", "x =" + x + ",y = " + y);
+            for (Point point : pointList) {
+                if (Math.abs(x - point.x) < 25) {
+                    if (Math.abs(y - point.y) < 25) {
+                        if (lastPointView == null) {
+                            lastPointView = point;
+                        } else if (nextPointView == null) {
+                            nextPointView = point;
+                        }
+                        postInvalidate();
+                        return true;
+                    }
+                }
+            }
+            if (lastPointView != null || nextPointView != null) {
+                lastPointView = null;
+                nextPointView = null;
+                postInvalidate();
+            }
+        }
+        return super.onTouchEvent(event);
     }
 
     public float getMaxValue() {
@@ -212,10 +299,27 @@ public class RadarView extends View {
     }
 
     private float getArea(float a,float b,float angle){
-        return (float) (Math.sin(angle)*a*b*0.5);
+        //Log.e("SSSS","angle = " + angle);
+        return (float) (Math.sin(Math.toRadians(angle) )*a*b*0.5);
     }
     private float getNotch(float a,float b,float angle){
-        return (float) Math.sqrt((a*a)+(b*b)-(Math.sin(angle)*a*b*0.5));
+        Log.e("SSSS","angle = " + angle);
+        float m = 0;
+        if(angle > 180){
+            final float ac =Math.abs(360 - angle);
+            if(ac <= 90){
+               m =  (float) Math.sqrt((a*a)+(b*b)-(Math.sin(Math.toRadians(ac))*a*b*2));
+            }else {
+                m =  (float) Math.sqrt((a*a)+(b*b)-(Math.cos(Math.toRadians(ac))*a*b*2));
+            }
+        }else {
+            if(angle <= 90){
+                m =  (float) Math.sqrt((a*a)+(b*b)-(Math.sin(Math.toRadians(angle))*a*b*2));
+            }else {
+                m =  (float) Math.sqrt((a*a)+(b*b)-(Math.cos(Math.toRadians(angle))*a*b*2));
+            }
+        }
+        return m;
     }
 
     public float getAllArea() {

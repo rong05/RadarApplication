@@ -10,10 +10,14 @@ import android.util.Log;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
+import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
+import java.util.LinkedList;
+import java.util.Queue;
 import java.util.UUID;
 
 
@@ -24,9 +28,12 @@ public class ClientUtil {
 
     public static final String TAG = "BluetoothManagerUtil";
     private Handler mainHandler;
+
     ///////////////////////////////////////////////////////////////////////////
     // 单例模式
     private ClientUtil() {
+        bufferQueue = new LinkedList<>();
+        lock = new Object();
     }
 
     public static synchronized ClientUtil getInstance() {
@@ -111,7 +118,7 @@ public class ClientUtil {
         this.serverBlueToothAddress = serverBlueToothAddress;
         final BluetoothDevice device = bluetoothAdapter.getRemoteDevice(serverBlueToothAddress);
 //        ThreadPoolUtil.execute(new ConnectRunnable(device, connectInterface));
-        new Thread(new ConnectRunnable(device,connectInterface)).start();
+        new Thread(new ConnectRunnable(device, connectInterface)).start();
     }
 
 //    /**
@@ -136,12 +143,13 @@ public class ClientUtil {
         }
     }
 
-    public void init(Handler handler,BluetoothAdapter bluetoothAdapter){
+    public void init(Handler handler, BluetoothAdapter bluetoothAdapter) {
         this.mainHandler = handler;
         this.bluetoothAdapter = bluetoothAdapter;
     }
 
     private ReadThread readThread;
+
     /**
      * 收到消息的监听事件,在通信页面注册这个事件
      */
@@ -152,17 +160,25 @@ public class ClientUtil {
 //            ThreadPoolUtil.execute(new ReadRunnable(listener));
 //            new Thread(new ReadRunnable(listener)).start();
             stopReadMessage();
-            if(readThread == null){
+            if(scanBufferThread == null){
+                scanBufferThread = new ScanBufferThread(listener);
+                scanBufferThread.start();
+            }
+            if (readThread == null) {
                 readThread = new ReadThread(listener);
                 readThread.start();
             }
         }
     }
 
-    public void stopReadMessage(){
-        if(readThread != null){
+    public void stopReadMessage() {
+        if (readThread != null) {
             readThread.stopRead();
             readThread = null;
+        }
+        if (scanBufferThread != null) {
+            scanBufferThread.stopScan();
+            scanBufferThread = null;
         }
     }
 
@@ -181,7 +197,9 @@ public class ClientUtil {
 
     public interface BlueToothConnectCallback {
         void connecting(String serverBlueToothAddress);
+
         void connectSuccess(String serverBlueToothAddress);
+
         void connectFailure(Exception e);
     }
 
@@ -212,7 +230,7 @@ public class ClientUtil {
 //                    Message.obtain(handler, MESSAGE_TYPE_SEND, "请稍候，正在连接服务器: " + serverBlueToothAddress).sendToTarget();
 
                     socket.connect();
-                    if(mainHandler != null) {
+                    if (mainHandler != null) {
                         mainHandler.post(new Runnable() {
                             @Override
                             public void run() {
@@ -229,7 +247,7 @@ public class ClientUtil {
                     // 屏蔽点击事件
 //                    listViewMessage.setOnItemClickListener(null);
                 } catch (final IOException e) {
-                    if(mainHandler != null) {
+                    if (mainHandler != null) {
                         mainHandler.post(new Runnable() {
                             @Override
                             public void run() {
@@ -244,39 +262,147 @@ public class ClientUtil {
         }
     }
 
-    public interface ReceivedMessageListener{
+    public interface ReceivedMessageListener {
         void onReceiveMessage(String finalContent);
+
         void onConnectionInterrupt(Exception e);
     }
+
     private BufferedWriter writer = null;
+    private Queue<String> bufferQueue = null;
+    private Object lock = null;
+    private ScanBufferThread scanBufferThread;
+
+    private class ScanBufferThread extends Thread{
+        private boolean isRunnig = true;
+        private boolean isFinish = true;
+        private StringBuffer buffer = null;
+        private ReceivedMessageListener listener;
+        private static final  char startStr  = '[';
+        private  static final  char endStr = ']';
+        public ScanBufferThread(ReceivedMessageListener listener){
+            this.listener = listener;
+        }
+        public void scanNotify(){
+            if(this.getState() == State.WAITING){
+                synchronized (this){
+                    this.notify();
+                }
+            }
+        }
+        public void scanWait(){
+            try {
+                synchronized (this) {
+                    this.wait();
+                }
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
+        @Override
+        public void run() {
+            super.run();
+            while (isRunnig){
+                if(bufferQueue != null && !bufferQueue.isEmpty() && isFinish){
+                    scanBuffer();
+                    try {
+                        Thread.sleep(10);
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                }else {
+                    scanWait();
+                }
+            }
+        }
+
+        public void stopScan() {
+            isRunnig = false;
+            this.interrupt();
+        }
+
+        private void scanBuffer() {
+            isFinish = false;
+            synchronized (lock){
+                final String s = bufferQueue.poll();
+                final int length = s.length();
+                for(int i = 0 ; i < length;i ++){
+                    final char c = s.charAt(i);
+                    if(startStr == c){
+                        if(buffer != null){
+                            buffer.reverse();
+                            buffer = null;
+                        }
+                        buffer = new StringBuffer();
+                        buffer.append(c);
+                    }else if(endStr == c){
+                        if(buffer != null){
+                            buffer.append(c);
+//                            if (mainHandler != null) {
+//                                mainHandler.post(new Runnable() {
+//                                    @Override
+//                                    public void run() {
+                                        listener.onReceiveMessage(buffer.toString());
+                                        buffer.reverse();
+                                        buffer = null;
+//                                    }
+//                                });
+                            }
+//                        }
+                    }else if(buffer != null){
+                        buffer.append(c);
+                    }
+                }
+            }
+            isFinish = true;
+        }
+
+    }
+
+
 
     class ReadThread extends Thread {
         private ReceivedMessageListener listener;
         boolean isReading = true;
-        BufferedReader reader = null;
+        InputStream reader = null;
+        byte[] buffer = null;
+
         public ReadThread(ReceivedMessageListener listener) {
             this.listener = listener;
         }
 
         public void run() {
             try {
+                if (reader == null) {
+                    reader = socket.getInputStream();
+                }
                 while (isReading) {
-                    reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
                     if (reader != null) {
-                        final String finalContent = reader.readLine();
-                        if (mainHandler != null) {
-                            mainHandler.post(new Runnable() {
-                                @Override
-                                public void run() {
-                                    listener.onReceiveMessage(finalContent);
-                                }
-                            });
+                        while(reader.available()==0){
                         }
-                    }
-                    try {
-                        Thread.sleep(200);
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
+                        try {
+                            Thread.sleep(5);
+                        } catch (InterruptedException e) {
+                            e.printStackTrace();
+                        }
+                        //ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                        byte[] b = new byte[1024];
+                        int n = reader.read(b);
+                        buffer = new byte[n];
+                        System.arraycopy(b,0,buffer,0,n);
+//                        while ((n) != -1) {
+//                            bos.write(b, 0, n);
+//                        }
+//                        bos.close();
+//                        buffer = bos.toByteArray();
+                        final String finalContent = new String(buffer);
+                        synchronized (lock){
+                            bufferQueue.add(finalContent);
+                            if(scanBufferThread != null){
+                                scanBufferThread.scanNotify();
+                            }
+                        }
+
                     }
                 }
             } catch (final IOException e) {
@@ -288,14 +414,14 @@ public class ClientUtil {
                             listener.onConnectionInterrupt(e);
                         }
                     });
+                    closeCloseable(reader);
                 }
                 // 连接断开
 //                Message.obtain(handler, MESSAGE_ID_DISCONNECT).sendToTarget();
             }
-            closeCloseable(reader);
         }
 
-        public void stopRead(){
+        public void stopRead() {
             isReading = false;
             this.interrupt();
         }

@@ -7,16 +7,18 @@
     tools:context=".MainActivity">
 
 
-    <com.rong.Radar.view.RadarView
+    <ImageView
         android:id="@+id/rv_radar"
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_height="match_parent"
+        android:layout_margin="5dp"
+        android:src="@mipmap/ic_launcher"/>
 
     <TextView
         android:id="@+id/tv_title_area"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="总面积:"
+        android:text="名称:"
         android:textSize="25sp"
         android:textColor="@android:color/holo_green_light"
         android:layout_marginStart="15dp"

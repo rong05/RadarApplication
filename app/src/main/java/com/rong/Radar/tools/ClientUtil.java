@@ -3,10 +3,24 @@ package com.rong.Radar.tools;
 
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothGatt;
+import android.bluetooth.BluetoothGattCallback;
+import android.bluetooth.BluetoothGattCharacteristic;
+import android.bluetooth.BluetoothGattDescriptor;
+import android.bluetooth.BluetoothGattService;
+import android.bluetooth.BluetoothProfile;
 import android.bluetooth.BluetoothSocket;
+import android.content.Context;
+import android.os.Build;
 import android.os.Handler;
+import android.os.ParcelUuid;
 import android.text.TextUtils;
 import android.util.Log;
+import android.widget.Toast;
+
+import com.rong.Radar.MainActivity;
+import com.rong.Radar.MainActivity2;
+import com.rong.Radar.datas.ImageBuffer;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -16,9 +30,15 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.nio.ByteBuffer;
 import java.util.LinkedList;
+import java.util.List;
 import java.util.Queue;
 import java.util.UUID;
+
+import static com.rong.Radar.serivce.BluetoothLeService.UUID_SERVICE;
 
 
 /**
@@ -28,6 +48,15 @@ public class ClientUtil {
 
     public static final String TAG = "BluetoothManagerUtil";
     private Handler mainHandler;
+    private Context mContext;
+
+
+    final UUID UUID_SERVICE = UUID.fromString("0003CDD2-0000-1000-8000-00805F9B0131");
+    //
+    //  设备特征值UUID, 需固件配合同时修改
+    //
+    final UUID UUID_WRITE = UUID.fromString("0003CDD2-0000-1000-8000-00805F9B0131");  // 用于发送数据到设备
+    final UUID UUID_NOTIFICATION = UUID.fromString("0003CDD2-0000-1000-8000-00805F9B0131"); // 用于接收设备推送的数据
 
     ///////////////////////////////////////////////////////////////////////////
     // 单例模式
@@ -36,8 +65,14 @@ public class ClientUtil {
         lock = new Object();
     }
 
+
+
     public static synchronized ClientUtil getInstance() {
         return SingletonHolder.instance;
+    }
+
+    public void setContext(Context context) {
+        this.mContext = mContext;
     }
 
     private static final class SingletonHolder {
@@ -46,70 +81,8 @@ public class ClientUtil {
     ///////////////////////////////////////////////////////////////////////////
 
     private String serverBlueToothAddress;  //连接蓝牙地址
-    private BluetoothSocket socket = null; // 客户端socket
+//    private BluetoothSocket socket = null; // 客户端socket
     private BluetoothAdapter bluetoothAdapter;
-
-//    /**
-//     * 打开蓝牙,注册扫描蓝牙的广播 onCreate()中执行.连接页面调用
-//     */
-//    public void onCreate(Activity activity) {
-//        registerBluetoothScanReceiver(activity);
-//        bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
-//        if (null != bluetoothAdapter) { //本地蓝牙存在...
-//            if (!bluetoothAdapter.isEnabled()) { //判断蓝牙是否被打开...
-//                // 发送打开蓝牙的意图，系统会弹出一个提示对话框,打开蓝牙是需要传递intent的...
-//                Intent enableIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
-//                //打开本机的蓝牙功能...使用startActivityForResult（）方法...这里我们开启的这个Activity是需要它返回执行结果给主Activity的...
-//                activity.startActivityForResult(enableIntent, Activity.RESULT_FIRST_USER);
-//
-//                Intent displayIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE);
-//                // 设置蓝牙的可见性，最大值3600秒，默认120秒，0表示永远可见(作为客户端，可见性可以不设置，服务端必须要设置)
-//                displayIntent.putExtra(BluetoothAdapter.EXTRA_DISCOVERABLE_DURATION, 0);
-//                //这里只需要开启另一个activity，让其一直显示蓝牙...没必要把信息返回..因此调用startActivity()
-//                activity.startActivity(displayIntent);
-//
-//                // 直接打开蓝牙
-//                bluetoothAdapter.enable();//这步才是真正打开蓝牙的部分....
-//                Log.d(TAG, "打开蓝牙成功");
-//            } else {
-//                Log.d(TAG, "蓝牙已经打开了...");
-//            }
-//        } else {
-//            Log.d(TAG, "当前设备没有蓝牙模块");
-//        }
-//    }
-
-
-//    /**
-//     * 扫描设备 onResume()中执行.连接页面调用
-//     */
-//    public List<BluetoothDeviceInfo> scanDevice() {
-//        if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled()) {
-//            LogUtil.e(TAG, "蓝牙状态异常");
-//            return null;
-//        }
-//        List<BluetoothDeviceInfo> bluetoothDeviceInfoList = new ArrayList<>();
-//        if (bluetoothAdapter.isDiscovering()) { // 如果正在处于扫描过程...
-//            /** 停止扫描 */
-//            bluetoothAdapter.cancelDiscovery(); // 取消扫描...
-//        } else {
-//            // 每次扫描前都先判断一下是否存在已经配对过的设备
-//            Set<BluetoothDevice> pairedDevices = bluetoothAdapter.getBondedDevices();
-//            if (pairedDevices.size() > 0) {
-//                BluetoothDeviceInfo bluetoothDeviceInfo;
-//                for (BluetoothDevice device : pairedDevices) {
-//                    bluetoothDeviceInfo = new BluetoothDeviceInfo(device.getName() + "", device.getAddress() + "");
-//                    bluetoothDeviceInfoList.add(bluetoothDeviceInfo);
-//                    LogUtil.d(TAG, "已经匹配过的设备:" + bluetoothDeviceInfo.toString());
-//                }
-//            } else {
-//                LogUtil.d(TAG, "没有已经配对过的设备");
-//            }
-//            /* 开始搜索 */
-//            bluetoothAdapter.startDiscovery();
-//        }
-//        return bluetoothDeviceInfoList;
-//    }
 
     /**
      * 通过Mac地址去尝试连接一个设备.连接页面调用
@@ -121,26 +94,17 @@ public class ClientUtil {
         new Thread(new ConnectRunnable(device, connectInterface)).start();
     }
 
-//    /**
-//     * 广播反注册.连接页面调用
-//     */
-//    public void unregisterReceiver(Activity activity) {
-//        if (receiver != null && receiver.getAbortBroadcast()) {
-//            activity.unregisterReceiver(receiver);
-//        }
-//    }
-
     /**
      * 发送消息,在通信页面使用
      */
     public void sendMessage(String message) {
-        try {
-            writer = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
-            writer.write(message + "\n");
-            writer.flush();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+//        try {
+//            writer = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
+//            writer.write(message + "\n");
+//            writer.flush();
+//        } catch (IOException e) {
+//            e.printStackTrace();
+//        }
     }
 
     public void init(Handler handler, BluetoothAdapter bluetoothAdapter) {
@@ -186,13 +150,14 @@ public class ClientUtil {
      * 关闭蓝牙,在app退出时调用
      */
     public void onExit() {
+        closeCloseable();
         if (bluetoothAdapter != null) {
             bluetoothAdapter.cancelDiscovery();
             // 关闭蓝牙
             bluetoothAdapter.disable();
             bluetoothAdapter = null;
         }
-        closeCloseable(writer, socket);
+
     }
 
     public interface BlueToothConnectCallback {
@@ -203,67 +168,96 @@ public class ClientUtil {
         void connectFailure(Exception e);
     }
 
+    private BluetoothDevice mDevice; // 蓝牙设备
+
     /**
      * 连接线程
      */
     class ConnectRunnable implements Runnable {
-        private BluetoothDevice device; // 蓝牙设备
+
         private BlueToothConnectCallback connectInterface;
 
 
         public ConnectRunnable(BluetoothDevice device, BlueToothConnectCallback connectInterface) {
-            this.device = device;
+            mDevice = device;
             this.connectInterface = connectInterface;
         }
 
         @Override
         public void run() {
-            if (null != device) {
-                try {
-                    if (socket != null) {
-                        closeCloseable(socket);
-                    }
-                    socket = device.createRfcommSocketToServiceRecord(UUID.fromString("00001101-0000-1000-8000-00805F9B34FB"));
-                    // 连接
-                    Log.d(TAG, "正在连接 " + serverBlueToothAddress);
-                    connectInterface.connecting(serverBlueToothAddress);
-//                    Message.obtain(handler, MESSAGE_TYPE_SEND, "请稍候，正在连接服务器: " + serverBlueToothAddress).sendToTarget();
+            if (null != mDevice) {
+//                try {
+//                if (socket != null) {
+                closeCloseable();
+//                }
 
-                    socket.connect();
-                    if (mainHandler != null) {
-                        mainHandler.post(new Runnable() {
-                            @Override
-                            public void run() {
-                                connectInterface.connectSuccess(serverBlueToothAddress);
-                                Log.d(TAG, "连接 " + serverBlueToothAddress + " 成功 ");
-                            }
-                        });
-                    }
-                    // 如果实现了连接，那么服务端和客户端就共享一个RFFCOMM信道...
+                mBluetoothGatt = mDevice.connectGatt(mContext, false, mGattCallback);
+
+//                    if(Build.VERSION.SDK_INT >= 10){
+//                        try {
+//                            final Method m = device.getClass().getMethod("createInsecureRfcommSocketToServiceRecord", new Class[] { UUID.class });
+//                            socket =  (BluetoothSocket) m.invoke(device, UUID.fromString("0003CDD2-0000-1000-8000-00805F9B0131"));
+//                        } catch (Exception e) {
+//                            Log.e(TAG, "Could not create Insecure RFComm Connection",e);
+//                        }
+//                    }else {
+//                        socket = device.createInsecureRfcommSocketToServiceRecord(UUID.fromString("0003CDD2-0000-1000-8000-00805F9B0131"));
+//                    }
+//                    if(BluetoothDevice.DEVICE_TYPE_LE == device.getType()){
+//                        //socket.connect()
+//                    }
+//                    // 连接
+//                    Log.d(TAG, "正在连接 "+device.getName()+ ",address=" + serverBlueToothAddress + " ,type = " + device.getType());
+//                    connectInterface.connecting(device.getAddress());
+////                    Message.obtain(handler, MESSAGE_TYPE_SEND, "请稍候，正在连接服务器: " + serverBlueToothAddress).sendToTarget();
+//                    Log.d(TAG, "正在连接  _>>>>>>>>>>>");
+//                    //socket.connect();
+//                    Class<?> clazz = socket.getRemoteDevice().getClass();
+//                    Class<?>[] paramTypes = new Class<?>[] {Integer.TYPE};
+//                    Method m = clazz.getMethod("createRfcommSocket", paramTypes);
+//                    Object[] params = new Object[] {Integer.valueOf(1)};
+//                    socket = (BluetoothSocket) m.invoke(socket.getRemoteDevice(), params);
+//                    socket.connect();
+//                if (mainHandler != null) {
+//                    mainHandler.post(new Runnable() {
+//                        @Override
+//                        public void run() {
+//                            connectInterface.connectSuccess(serverBlueToothAddress);
+//                            Log.d(TAG, "连接 " + serverBlueToothAddress + " 成功 ");
+//                        }
+//                    });
+//                }
+            }
+            // 如果实现了连接，那么服务端和客户端就共享一个RFFCOMM信道...
 //                    Message.obtain(handler, MESSAGE_TYPE_SEND, "已经连接上服务端！可以发送信息").sendToTarget();
-                    // 如果连接成功了...这步就会执行...更新UI界面...否则走catch（IOException e）
+            // 如果连接成功了...这步就会执行...更新UI界面...否则走catch（IOException e）
 //                    Message.obtain(handler, MESSAGE_ID_REFRESH_UI).sendToTarget();
 
-                    // 屏蔽点击事件
+            // 屏蔽点击事件
 //                    listViewMessage.setOnItemClickListener(null);
-                } catch (final IOException e) {
-                    if (mainHandler != null) {
-                        mainHandler.post(new Runnable() {
-                            @Override
-                            public void run() {
-                                connectInterface.connectFailure(e);
-                                Log.d(TAG, "连接" + serverBlueToothAddress + "失败 " + e.getMessage());
-                            }
-                        });
-                    }
+//                } catch (final IOException e) {
+//                    if (mainHandler != null) {
+//                        mainHandler.post(new Runnable() {
+//                            @Override
+//                            public void run() {
+//                                connectInterface.connectFailure(e);
+//                                Log.d(TAG, "连接" + serverBlueToothAddress + "失败 " + e.getMessage());
+//                            }
+//                        });
+//                    }
+////                    e.printStackTrace();
+//                } catch (NoSuchMethodException e) {
 //                    e.printStackTrace();
-                }
-            }
+//                } catch (IllegalAccessException e) {
+//                    e.printStackTrace();
+//                } catch (InvocationTargetException e) {
+//                    e.printStackTrace();
+//                }
         }
     }
 
     public interface ReceivedMessageListener {
-        void onReceiveMessage(String finalContent);
+        void onReceiveMessage(ImageBuffer finalContent);
 
         void onConnectionInterrupt(Exception e);
     }
@@ -274,12 +268,20 @@ public class ClientUtil {
     private ScanBufferThread scanBufferThread;
 
     private class ScanBufferThread extends Thread{
-        private boolean isRunnig = true;
+        private boolean isRunning = true;
         private boolean isFinish = true;
-        private StringBuffer buffer = null;
+        private StringBuffer headBuffer = null;
+        private StringBuffer nameBuffer = null;
+        private boolean isExiteHead = false;
+        private boolean isExiteName = false;
+        private boolean isExiteSize = false;
+        private StringBuffer sizeBuffer = null;
+        private ByteBuffer byteBuffer = null;
+        private ImageBuffer imageBuffer;
         private ReceivedMessageListener listener;
-        private static final  char startStr  = '[';
-        private  static final  char endStr = ']';
+        private static final  char startStr  = '$';
+        private  static final  char endStr = ',';
+        private static final String separator = ":";
         public ScanBufferThread(ReceivedMessageListener listener){
             this.listener = listener;
         }
@@ -302,7 +304,7 @@ public class ClientUtil {
         @Override
         public void run() {
             super.run();
-            while (isRunnig){
+            while (isRunning){
                 if(bufferQueue != null && !bufferQueue.isEmpty() && isFinish){
                     scanBuffer();
                     try {
@@ -317,7 +319,7 @@ public class ClientUtil {
         }
 
         public void stopScan() {
-            isRunnig = false;
+            isRunning = false;
             this.interrupt();
         }
 
@@ -328,35 +330,121 @@ public class ClientUtil {
                 final int length = s.length();
                 for(int i = 0 ; i < length;i ++){
                     final char c = s.charAt(i);
-                    if(startStr == c){
-                        if(buffer != null){
-                            buffer.reverse();
-                            buffer = null;
+                    if(startStr == c && (headBuffer == null || headBuffer.length() < 2)){
+                        if(headBuffer != null && headBuffer.length() == 2){
+                            headBuffer.append(c);
+                            nameBuffer = new StringBuffer();
+                            imageBuffer = new ImageBuffer();
                         }
-                        buffer = new StringBuffer();
-                        buffer.append(c);
+                        headBuffer = new StringBuffer();
+                        headBuffer.append(c);
                     }else if(endStr == c){
-                        if(buffer != null){
-                            buffer.append(c);
+                        if(nameBuffer != null && sizeBuffer == null){
+                            final String name= nameBuffer.toString();
+                            final String[] names = name.split(separator);
+                            if(names.length == 2){
+                                imageBuffer.setName(names[1]);
+                                sizeBuffer = new StringBuffer();
+                            }else {
+                                Log.e(TAG,"数据错误 name = " + name);
+                                headBuffer.reverse();
+                                headBuffer = null;
+                                nameBuffer.reverse();
+                                nameBuffer = null;
+                                imageBuffer = null;
+                            }
+//                            buffer.append(c);
 //                            if (mainHandler != null) {
 //                                mainHandler.post(new Runnable() {
 //                                    @Override
 //                                    public void run() {
-                                        listener.onReceiveMessage(buffer.toString());
-                                        buffer.reverse();
-                                        buffer = null;
+//                                        listener.onReceiveMessage(buffer.toString());
+//                                        buffer.reverse();
+//                                        buffer = null;
 //                                    }
 //                                });
                             }
+                            if(sizeBuffer != null){
+                                final String name= sizeBuffer.toString();
+                                final String[] names = name.split(separator);
+                                if(names.length == 2 && isInteger(names[1])){
+                                    final int size = Integer.parseInt(names[1]);
+                                    imageBuffer.setSize(size);
+                                    byteBuffer = ByteBuffer.allocate(size);
+                                }else {
+                                    Log.e(TAG,"数据错误 size = " + name);
+                                    headBuffer.reverse();
+                                    headBuffer = null;
+                                    nameBuffer.reverse();
+                                    nameBuffer = null;
+                                    sizeBuffer.reverse();
+                                    sizeBuffer = null;
+                                    imageBuffer = null;
+                                }
+                            }
 //                        }
-                    }else if(buffer != null){
-                        buffer.append(c);
+                    }else if(nameBuffer != null){
+                        nameBuffer.append(c);
+                    }else if(sizeBuffer != null){
+                        sizeBuffer.append(c);
+                    }else if(byteBuffer != null){
+                        byte[] b = charToBytes(c);
+                        byteBuffer.put(b[0]);
+                        byteBuffer.put(b[1]);
+                        if(byteBuffer.hasRemaining()){
+                            imageBuffer.setByteBuffer(byteBuffer);
+                            if(listener != null){
+                                listener.onReceiveMessage(imageBuffer);
+                            }
+                            headBuffer.reverse();
+                            headBuffer = null;
+                            nameBuffer.reverse();
+                            nameBuffer = null;
+                            sizeBuffer.reverse();
+                            sizeBuffer = null;
+                            imageBuffer = null;
+                        }
                     }
                 }
             }
             isFinish = true;
         }
 
+    }
+
+    private  byte[] charToByte(char c) {
+        byte[] b = new byte[2];
+        b[0] = (byte) ((c & 0xFF00) >> 8);
+        b[1] = (byte) (c & 0xFF);
+        return b;
+    }
+
+    /**
+     * 将一个char字符转换位字节数组（2个字节），b[0]存储高位字符，大端
+     *
+     * @param c 字符（java char 2个字节）
+     * @return 代表字符的字节数组
+     */
+    private byte[] charToBytes(char c)
+    {
+        byte[] b = new byte[2];
+        b[0] = (byte) (c >>> 8);
+        b[1] = (byte) c;
+        return b;
+    }
+
+    /*方法二：推荐，速度最快
+     * 判断是否为整数
+     * @param str 传入的字符串
+     * @return 是整数返回true,否则返回false
+     */
+    public static boolean isInteger(String str) {
+        try {
+            Integer.parseInt(str);
+        }catch (Exception e){
+            return false;
+        }
+        return true;
     }
 
 
@@ -374,7 +462,7 @@ public class ClientUtil {
         public void run() {
             try {
                 if (reader == null) {
-                    reader = socket.getInputStream();
+//                    reader = socket.getInputStream();
                 }
                 while (isReading) {
                     if (reader != null) {
@@ -414,7 +502,7 @@ public class ClientUtil {
                             listener.onConnectionInterrupt(e);
                         }
                     });
-                    closeCloseable(reader);
+                    closeCloseable();
                 }
                 // 连接断开
 //                Message.obtain(handler, MESSAGE_ID_DISCONNECT).sendToTarget();
@@ -443,21 +531,223 @@ public class ClientUtil {
         void foundUnBondDevice(BluetoothDevice unBondDevice);
     }
 
-    private void closeCloseable(Closeable... closeable) {
-        if (null != closeable && closeable.length > 0) {
-            for (int i = 0; i < closeable.length; i++) {
-                if (closeable[i] != null) {
-                    try {
-                        closeable[i].close();
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    } finally {
-                        closeable[i] = null;
-                    }
-                }
-            }
+    private void closeCloseable() {
+        if (mBluetoothGatt != null) {
+            mBluetoothGatt.disconnect();
+            mBluetoothGatt.close();
+            mBluetoothGatt = null;
         }
     }
+//    private String TAG = "haha";
+    private BluetoothGatt mBluetoothGatt;
+    private boolean isServiceConnected;
+    private BluetoothGattCallback mGattCallback = new BluetoothGattCallback() {
+
+
+        @Override
+        public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
+            super.onConnectionStateChange(gatt, status, newState);
+            Log.d("haha", "onConnectionStateChange: " + newState);
+
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                String err = "Cannot connect device with error status: " + status;
+
+                gatt.close();
+                if (mBluetoothGatt != null) {
+                    mBluetoothGatt.disconnect();
+                    mBluetoothGatt.close();
+                    mBluetoothGatt = null;
+                }
+                if (mDevice != null) {
+                    mBluetoothGatt = mDevice.connectGatt(mContext, false, mGattCallback);
+                }
+                Log.e(TAG, err);
+                return;
+            }
+
+
+            if (newState == BluetoothProfile.STATE_CONNECTED) {//当蓝牙设备已经连接
+
+//获取ble设备上面的服务
+//                Toast.makeText(MainActivity.this, "连接成功", Toast.LENGTH_SHORT).show();
+                Log.i("haha", "Attempting to start service discovery:" +
+
+                        mBluetoothGatt.discoverServices());
+
+                Log.d("haha", "onConnectionStateChange: " + "连接成功");
+
+            } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {//当设备无法连接
+                if (mBluetoothGatt != null) {
+                    mBluetoothGatt.disconnect();
+                    mBluetoothGatt.close();
+                    mBluetoothGatt = null;
+                }
+                gatt.close();
+                if (mDevice != null) {
+                    mBluetoothGatt = mDevice.connectGatt(mContext, false, mGattCallback);
+                }
+            }
+
+
+        }
+
+        //发现服务回调。
+        public void onServicesDiscovered(BluetoothGatt gatt, int status) {
+            Log.d("haha", "onServicesDiscovered: " + "发现服务 : " + status);
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                isServiceConnected = true;
+
+                boolean serviceFound;
+                Log.d("haha", "onServicesDiscovered: " + "发现服务 : " + status);
+
+
+                Log.d(TAG, "onServicesDiscovered: " + "读取数据0");
+
+//                    Log.d(TAG, "onServicesDiscovered--" + "ACTION_GATT_SERVICES_DISCOVERED");
+                    List<BluetoothGattService> bluetoothGattServices = gatt.getServices();
+                    //发现服务是可以在这里查找支持的所有服务
+//                        BluetoothGattService bluetoothGattService = gatt.getService(UUID.randomUUID());
+                    for (BluetoothGattService bluetoothGattService : bluetoothGattServices) {
+                        UUID uuid = bluetoothGattService.getUuid();
+                        Log.d(TAG, "onServicesDiscovered--uuid=" + uuid);
+                        List<BluetoothGattCharacteristic> bluetoothGattCharacteristics = bluetoothGattService.getCharacteristics();
+                        Log.d(TAG, "onServicesDiscovered--遍历特征值=");
+                        /*获取指定服务uuid的特征值*/
+//                        BluetoothGattCharacteristic mBluetoothGattCharacteristic = bluetoothGattService.getCharacteristic(uuid);
+//                            gatt.readCharacteristic(mBluetoothGattCharacteristic);
+                        for (BluetoothGattCharacteristic bluetoothGattCharacteristic : bluetoothGattCharacteristics) {
+                            if(bluetoothGattCharacteristic != null) {
+                                Log.d(TAG, "onServicesDiscovered--特征值 uuid=" + bluetoothGattCharacteristic.getUuid());
+//                                gatt.readCharacteristic(bluetoothGattCharacterisbluetoothGattCharacteristictic);
+//                                bluetoothGattCharacteristic.getValue();
+
+                                Log.d(TAG, "onServicesDiscovered--指定服务uuid的特征值不为空=--");
+                                final int charaProp = bluetoothGattCharacteristic.getProperties();
+
+//                                bluetoothGattCharacteristic.getWriteType()==BluetoothGattCharacteristic.PROPERTY_READ
+                                /*如果该字符串可读*/
+                                if ((charaProp | BluetoothGattCharacteristic.PROPERTY_READ) > 0) {
+                                    Log.d(TAG, "onServicesDiscovered--字符串可读--");
+                                    byte[] value = new byte[20];
+                                    bluetoothGattCharacteristic.setValue(value[0], BluetoothGattCharacteristic.FORMAT_UINT8, 0);
+                                    String writeBytes = "HYL";
+                                    bluetoothGattCharacteristic.setValue(writeBytes.getBytes());
+                                }
+                                if (gatt.setCharacteristicNotification(bluetoothGattCharacteristic, true)) {
+                                    Log.d(TAG, "onServicesDiscovered--设置通知成功=--" + uuid);
+                                }
+			/*3.再从指定的Characteristic中，我们可以通过getDescriptor()方法来获取该特征所包含的descriptor
+				以上的BluetoothGattService、BluetoothGattCharacteristic、BluetoothGattDescriptor。
+				我们都可以通过其getUuid()方法，来获取其对应的Uuid，从而判断是否是自己需要的。*/
+                                List<BluetoothGattDescriptor> bluetoothGattDescriptors = bluetoothGattCharacteristic.getDescriptors();
+                                Log.d(TAG, "onServicesDiscovered--遍历Descriptor=");
+                                for (BluetoothGattDescriptor bluetoothGattDescriptor : bluetoothGattDescriptors) {
+                                    Log.d(TAG, "onServicesDiscovered--Descriptor uuid=" + bluetoothGattDescriptor.getUuid());
+//                                    bluetoothGattDescriptor.getValue();
+                                }
+                            }
+                        }
+                    }
+
+//                if (mBluetoothGatt != null && isServiceConnected) {
+//
+//                    Method getUuidsMethod = null;
+//                    try {
+//                        getUuidsMethod = BluetoothAdapter.class.getDeclaredMethod("getUuids", null);
+//                        ParcelUuid[] uuids = (ParcelUuid[]) getUuidsMethod.invoke(bluetoothAdapter, null);
+//
+////                        for (ParcelUuid uuid: uuids) {
+//                            Log.d(TAG, "UUID: " + uuids.length);
+////                        }
+//                        if(uuids != null && uuids.length > 0) {
+//                            for (ParcelUuid uuid : uuids) {
+//                                Log.d(TAG, "UUID: " + uuid.getUuid().toString());
+//                                BluetoothGattService gattService = mBluetoothGatt.getService(uuid.getUuid());
+//                                if (gattService != null) {
+//                                    Log.d(TAG,">>>>>1111");
+//                                    BluetoothGattCharacteristic characteristic = gattService.getCharacteristic(uuid.getUuid());
+//                                    boolean b = mBluetoothGatt.setCharacteristicNotification(characteristic, true);
+//                                    if (b) {
+//                                        Log.d(TAG,">>>>>222");
+//                                        List<BluetoothGattDescriptor> descriptors = characteristic.getDescriptors();
+//                                        for (BluetoothGattDescriptor descriptor : descriptors) {
+//
+//                                            boolean b1 = descriptor.setValue(BluetoothGattDescriptor.ENABLE_INDICATION_VALUE);
+//                                            if (b1) {
+//                                                mBluetoothGatt.writeDescriptor(descriptor);
+//                                                Log.d(TAG, "startRead: " + "监听收数据");
+//                                            }
+//
+//                                        }
+//                                        break;
+//                                    }
+//                                }
+//                            }
+//                        }
+//                   } catch (NoSuchMethodException e) {
+//                        e.printStackTrace();
+//                    } catch (IllegalAccessException e) {
+//                        e.printStackTrace();
+//                    } catch (InvocationTargetException e) {
+//                        e.printStackTrace();
+//                    }
+//                }
+
+                serviceFound = true;
+
+            }
+
+        }
+
+        @Override
+        public void onCharacteristicRead(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
+            super.onCharacteristicRead(gatt, characteristic, status);
+            Log.d(TAG, "read value: " + characteristic.getValue());
+            Log.d(TAG, "callback characteristic read status " + status
+                    + " in thread " + Thread.currentThread());
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                Log.d(TAG, "read value: " + characteristic.getValue());
+            }
+
+
+        }
+
+        @Override
+        public void onDescriptorWrite(BluetoothGatt gatt, BluetoothGattDescriptor descriptor, int status) {
+            super.onDescriptorWrite(gatt, descriptor, status);
+            Log.d(TAG, "onDescriptorWrite: " + "设置成功");
+        }
+
+        @Override
+        public void onDescriptorRead(BluetoothGatt gatt, BluetoothGattDescriptor descriptor, int status) {
+            super.onDescriptorRead(gatt, descriptor, status);
+
+        }
+
+        @Override
+        public void onCharacteristicWrite(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
+            super.onCharacteristicWrite(gatt, characteristic, status);
+            Log.d(TAG, "onCharacteristicWrite: " + "发送成功");
+
+            boolean b = mBluetoothGatt.setCharacteristicNotification(characteristic, true);
+            mBluetoothGatt.readCharacteristic(characteristic);
+        }
+
+        @Override
+        public final void onCharacteristicChanged(final BluetoothGatt gatt, final BluetoothGattCharacteristic characteristic) {
+            byte[] value = characteristic.getValue();
+            Log.d(TAG, "onCharacteristicChanged: " + value);
+            String s0 = Integer.toHexString(value[0] & 0xFF);
+            String s = Integer.toHexString(value[1] & 0xFF);
+            Log.d(TAG, "onCharacteristicChanged: " + s0 + "、" + s);
+//            textView1.setText("收到: " + s0 + "、" + s);
+            for (byte b : value) {
+                Log.d(TAG, "onCharacteristicChanged: " + b);
+            }
+
+        }
+
+    };
 
 //    /**
 //     * 下面是注册receiver监听，注册广播...说一下为什么要注册广播...
@@ -495,4 +785,5 @@ public class ClientUtil {
 //        return new BluetoothDeviceInfo(device.getName(), device.getAddress()).toString();
 //    }
 }
+
 

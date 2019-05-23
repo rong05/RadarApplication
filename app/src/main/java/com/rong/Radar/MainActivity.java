@@ -3,6 +3,7 @@ package com.rong.Radar;
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.Dialog;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothManager;
@@ -13,6 +14,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Message;
@@ -29,18 +31,22 @@ import android.view.MenuItem;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.Button;
+import android.widget.ImageView;
 import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import com.rong.Radar.adapter.DialogItemAdapter;
+import com.rong.Radar.datas.ImageBuffer;
 import com.rong.Radar.serivce.BluetoothLeService;
+import com.rong.Radar.tools.BitmapUtil;
 import com.rong.Radar.tools.BleAdvertisedData;
 import com.rong.Radar.tools.BleUtil;
 import com.rong.Radar.tools.ClientUtil;
 import com.rong.Radar.view.PointBuffer;
 import com.rong.Radar.view.RadarView;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -53,7 +59,7 @@ import java.util.regex.Pattern;
 
 public class MainActivity extends AppCompatActivity {
 
-    private RadarView rv_radar;
+    private ImageView rv_radar;
     private TextView tv_erea;
     private Button bn_start_stop;
 
@@ -66,6 +72,11 @@ public class MainActivity extends AppCompatActivity {
     private Object lock;
     private List<PointBuffer> pointBufferList;
     private List<PointBuffer> radarPointList;
+    private String newName = null;
+    private byte[] newDatas = null;
+    private String currentName = null;
+    private byte[] currentDatas = null;
+    private Bitmap bitmap = null;
 
     String[] allPermissions=new String[]{
             Manifest.permission.BLUETOOTH,
@@ -102,6 +113,7 @@ public class MainActivity extends AppCompatActivity {
         intent.addAction(BluetoothAdapter.ACTION_STATE_CHANGED);//动作状态发生了变化
         registerReceiver(searchDevices, intent);
         clientUtil = ClientUtil.getInstance();
+        clientUtil.setContext(this);
         clientUtil.init(mHandler,mBluetoothAdapter);
         messageQueue = new LinkedList<>();
         lock = new Object();
@@ -111,8 +123,8 @@ public class MainActivity extends AppCompatActivity {
         radarPointList = new ArrayList<>();
         messageQueue.add(s);
         messageQueue.add(s1);
-        pointReadThread = new PointReadThread();
-        pointReadThread.start();
+//        pointReadThread = new PointReadThread();
+//        pointReadThread.start();
     }
 
     /**
@@ -252,7 +264,7 @@ public class MainActivity extends AppCompatActivity {
         rv_radar = findViewById(R.id.rv_radar);
         tv_erea = findViewById(R.id.tv_area);
         bn_start_stop = findViewById(R.id.bn_stop_start);
-        rv_radar.setHandler(mHandler);
+        //rv_radar.setHandler(mHandler);
         bn_start_stop.setEnabled(false);
         bn_start_stop.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -260,9 +272,9 @@ public class MainActivity extends AppCompatActivity {
                 if(isStop){
                     isStop = false;
                     bn_start_stop.setText("停止");
-                    if(radarPointList != null && !radarPointList.isEmpty()) {
-                        rv_radar.setPointBufferList(radarPointList);
-                    }
+//                    if(radarPointList != null && !radarPointList.isEmpty()) {
+//                        rv_radar.setPointBufferList(radarPointList);
+//                    }
                 }else {
                     isStop = true;
                     bn_start_stop.setText("开始");
@@ -335,6 +347,33 @@ public class MainActivity extends AppCompatActivity {
                     final float area = (float) msg.obj;
                     tv_erea.setText(area+"");
                     break;
+                case 0x10:
+                    AlertDialog.Builder builder =new AlertDialog.Builder(MainActivity.this);
+                    builder.setTitle("收到"+newName+"图片");
+                    builder.setMessage("是否需要展示该图片?");
+                    builder.setPositiveButton("是", new DialogInterface.OnClickListener() {
+                        @Override
+                        public void onClick(DialogInterface dialog, int which) {
+                            currentName = newName;
+                            currentDatas = newDatas;
+                            if(bitmap != null){
+                                bitmap.recycle();
+                                System.gc();
+                            }
+                            bitmap = BitmapUtil.decodeBitmapByByte(currentDatas,rv_radar.getMaxWidth(),rv_radar.getMaxHeight());
+                            rv_radar.setImageBitmap(bitmap);
+                            tv_erea.setText(currentName+"");
+                            dialog.cancel();
+                        }
+                    });
+                    builder.setNegativeButton("否", new DialogInterface.OnClickListener() {
+                        @Override
+                        public void onClick(DialogInterface dialog, int which) {
+                            dialog.cancel();
+                        }
+                    });
+
+                    break;
             }
         }
     };
@@ -366,11 +405,24 @@ public class MainActivity extends AppCompatActivity {
     private ClientUtil.ReceivedMessageListener receivedMessageListener = new ClientUtil.ReceivedMessageListener(){
 
         @Override
-        public void onReceiveMessage(String finalContent) {
-            Log.d("MainActivity",finalContent);
+        public void onReceiveMessage(ImageBuffer finalContent) {
+            Log.d("MainActivity",finalContent.toString());
             synchronized (lock){
-                messageQueue.add(finalContent);
-                pointReadThread.readNotify();
+//                messageQueue.add(finalContent);
+//                pointReadThread.readNotify();
+                ByteBuffer  byteBuffer = finalContent.getByteBuffer();
+                final int size = finalContent.getSize();
+                final byte[] b = byteBuffer.array();
+                byteBuffer.clear();
+                byteBuffer = null;
+                if(b.length == size){
+                    newName = finalContent.getName();
+                    newDatas = b;
+                    mHandler.sendEmptyMessageDelayed(0x10,500);
+                }else {
+                    Log.e("MainActivity","数据有误长度不相等");
+                }
+                finalContent = null;
             }
         }
 
@@ -450,7 +502,7 @@ public class MainActivity extends AppCompatActivity {
         private boolean isFinish = true;
         private PointBuffer pointBuffer = null;
         private List<PointBuffer> msgPoints = new ArrayList<>();
-        private static final  String startStr  = "[";
+        private static final  String startStr  = "$$";
         private  static final  String endStr = "]";
         private static final String BREAKPOINT = ",";
         private int allSize = 0;
@@ -569,7 +621,7 @@ public class MainActivity extends AppCompatActivity {
                                 radarPointList.clear();
                                 Collections.sort(pointBufferList);
                                 radarPointList.addAll(pointBufferList);
-                                rv_radar.setPointBufferList(radarPointList);
+//                                rv_radar.setPointBufferList(radarPointList);
                             }
                             pointBufferList.clear();
                             pointBufferList.add(pointBuffer);
@@ -612,18 +664,6 @@ public class MainActivity extends AppCompatActivity {
             return false;
         }
         return true;
-    }
-
-    private void addPointBuffer(PointBuffer pointBuffer){
-        final int size = pointBufferList.size();
-        for(int i = (size - 1); i >= 0 ; i -- ){
-            PointBuffer lPointBuffer = pointBufferList.get(i);
-            if(lPointBuffer.getAngle() == pointBuffer.getAngle() && pointBuffer.getRadius() != 0){
-                pointBufferList.set(i,pointBuffer);
-                return;
-            }
-        }
-        pointBufferList.add(pointBuffer);
     }
 
 }

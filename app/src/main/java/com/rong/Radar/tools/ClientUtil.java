@@ -170,17 +170,18 @@ public class ClientUtil {
 
     private BluetoothDevice mDevice; // 蓝牙设备
 
+    private BlueToothConnectCallback mConnectInterface;
     /**
      * 连接线程
      */
     class ConnectRunnable implements Runnable {
 
-        private BlueToothConnectCallback connectInterface;
+
 
 
         public ConnectRunnable(BluetoothDevice device, BlueToothConnectCallback connectInterface) {
             mDevice = device;
-            this.connectInterface = connectInterface;
+            mConnectInterface = connectInterface;
         }
 
         @Override
@@ -592,12 +593,14 @@ public class ClientUtil {
         }
 
         //发现服务回调。
+        @Override
         public void onServicesDiscovered(BluetoothGatt gatt, int status) {
             Log.d("haha", "onServicesDiscovered: " + "发现服务 : " + status);
+            super.onServicesDiscovered(gatt,status);
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 isServiceConnected = true;
 
-                boolean serviceFound;
+                boolean serviceFound = false;
                 Log.d("haha", "onServicesDiscovered: " + "发现服务 : " + status);
 
 
@@ -626,26 +629,42 @@ public class ClientUtil {
 
 //                                bluetoothGattCharacteristic.getWriteType()==BluetoothGattCharacteristic.PROPERTY_READ
                                 /*如果该字符串可读*/
-                                if ((charaProp | BluetoothGattCharacteristic.PROPERTY_READ) > 0) {
-                                    Log.d(TAG, "onServicesDiscovered--字符串可读--");
-                                    byte[] value = new byte[20];
-                                    bluetoothGattCharacteristic.setValue(value[0], BluetoothGattCharacteristic.FORMAT_UINT8, 0);
-                                    String writeBytes = "HYL";
-                                    bluetoothGattCharacteristic.setValue(writeBytes.getBytes());
-                                }
                                 if (gatt.setCharacteristicNotification(bluetoothGattCharacteristic, true)) {
                                     Log.d(TAG, "onServicesDiscovered--设置通知成功=--" + uuid);
+                                if ((charaProp | BluetoothGattCharacteristic.PROPERTY_READ) > 0) {
+                                    Log.d(TAG, "onServicesDiscovered--字符串可读--");
+                                    gatt.readCharacteristic(bluetoothGattCharacteristic);
+//                                    byte[] value = new byte[20];
+//                                    bluetoothGattCharacteristic.setValue(value[0], BluetoothGattCharacteristic.FORMAT_UINT8, 0);
+//                                    String writeBytes = "HYL";
+//                                    bluetoothGattCharacteristic.setValue(writeBytes.getBytes());
                                 }
-			/*3.再从指定的Characteristic中，我们可以通过getDescriptor()方法来获取该特征所包含的descriptor
+                                if((charaProp | BluetoothGattCharacteristic.PROPERTY_WRITE) > 0) {
+                                /*3.再从指定的Characteristic中，我们可以通过getDescriptor()方法来获取该特征所包含的descriptor
 				以上的BluetoothGattService、BluetoothGattCharacteristic、BluetoothGattDescriptor。
 				我们都可以通过其getUuid()方法，来获取其对应的Uuid，从而判断是否是自己需要的。*/
-                                List<BluetoothGattDescriptor> bluetoothGattDescriptors = bluetoothGattCharacteristic.getDescriptors();
-                                Log.d(TAG, "onServicesDiscovered--遍历Descriptor=");
-                                for (BluetoothGattDescriptor bluetoothGattDescriptor : bluetoothGattDescriptors) {
-                                    Log.d(TAG, "onServicesDiscovered--Descriptor uuid=" + bluetoothGattDescriptor.getUuid());
+                                    List<BluetoothGattDescriptor> bluetoothGattDescriptors = bluetoothGattCharacteristic.getDescriptors();
+                                    Log.d(TAG, "onServicesDiscovered--遍历Descriptor=");
+                                    for (BluetoothGattDescriptor bluetoothGattDescriptor : bluetoothGattDescriptors) {
+                                        Log.d(TAG, "onServicesDiscovered--Descriptor uuid=" + bluetoothGattDescriptor.getUuid());
 //                                    bluetoothGattDescriptor.getValue();
+                                        boolean b1 = bluetoothGattDescriptor.setValue(BluetoothGattDescriptor.ENABLE_INDICATION_VALUE);
+                                        if (b1) {
+                                            mBluetoothGatt.writeDescriptor(bluetoothGattDescriptor);
+                                            Log.d(TAG, "startRead: " + "监听收数据");
+                                            break;
+                                        }
+                                    }
                                 }
+                                    serviceFound = true;
+                                    break;
+
+                                }
+
                             }
+                        }
+                        if(serviceFound){
+                            break;
                         }
                     }
 
@@ -702,11 +721,21 @@ public class ClientUtil {
         @Override
         public void onCharacteristicRead(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
             super.onCharacteristicRead(gatt, characteristic, status);
-            Log.d(TAG, "read value: " + characteristic.getValue());
+//            Log.d(TAG, "read value: " + characteristic.getValue());
             Log.d(TAG, "callback characteristic read status " + status
                     + " in thread " + Thread.currentThread());
             if (status == BluetoothGatt.GATT_SUCCESS) {
-                Log.d(TAG, "read value: " + characteristic.getValue());
+                byte[] bytes = characteristic.getValue();
+                Log.d(TAG, "read value: " + new String(bytes));
+                if (mainHandler != null) {
+                    mainHandler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            mConnectInterface.connectSuccess(serverBlueToothAddress);
+                            Log.d(TAG, "连接 " + serverBlueToothAddress + " 成功 ");
+                        }
+                    });
+                }
             }
 
 
@@ -716,12 +745,21 @@ public class ClientUtil {
         public void onDescriptorWrite(BluetoothGatt gatt, BluetoothGattDescriptor descriptor, int status) {
             super.onDescriptorWrite(gatt, descriptor, status);
             Log.d(TAG, "onDescriptorWrite: " + "设置成功");
+            if (mainHandler != null) {
+                mainHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        mConnectInterface.connectSuccess(serverBlueToothAddress);
+                        Log.d(TAG, "连接 " + serverBlueToothAddress + " 成功 ");
+                    }
+                });
+            }
         }
 
         @Override
         public void onDescriptorRead(BluetoothGatt gatt, BluetoothGattDescriptor descriptor, int status) {
             super.onDescriptorRead(gatt, descriptor, status);
-
+            Log.d(TAG, "onDescriptorRead: " + "设置成功");
         }
 
         @Override
@@ -736,14 +774,15 @@ public class ClientUtil {
         @Override
         public final void onCharacteristicChanged(final BluetoothGatt gatt, final BluetoothGattCharacteristic characteristic) {
             byte[] value = characteristic.getValue();
-            Log.d(TAG, "onCharacteristicChanged: " + value);
-            String s0 = Integer.toHexString(value[0] & 0xFF);
-            String s = Integer.toHexString(value[1] & 0xFF);
-            Log.d(TAG, "onCharacteristicChanged: " + s0 + "、" + s);
-//            textView1.setText("收到: " + s0 + "、" + s);
-            for (byte b : value) {
-                Log.d(TAG, "onCharacteristicChanged: " + b);
-            }
+//            Log.d(TAG, "onCharacteristicChanged: " + value);
+//            String s0 = Integer.toHexString(value[0] & 0xFF);
+//            String s = Integer.toHexString(value[1] & 0xFF);
+//            Log.d(TAG, "onCharacteristicChanged: " + s0 + "、" + s);
+////            textView1.setText("收到: " + s0 + "、" + s);
+//            for (byte b : value) {
+//                Log.d(TAG, "onCharacteristicChanged: " + b);
+//            }
+
 
         }
 
